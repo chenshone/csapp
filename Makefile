@@ -1,15 +1,25 @@
 CC = /usr/bin/gcc
-CFLAGS = -Wall -g -O2 -Werror -std=c11
 
-EXE = program
+CFLAGS = -Wall -g -O2 -Werror -std=c11 -Wno-unused-function
 
-SRC = ./src
+EXE_HARDWARE = exe_hardware
 
-CODE = ./src/memory/instruction.c ./src/disk/code.c ./src/memory/dram.c ./src/cpu/mmu.c ./src/main.c
+SRC_DIR = ./src
 
-.PHONY: program
-main:
-	$(CC) $(CFLAGS) -I$(SRC) $(CODE) -o $(EXE)
+# debug
+COMMON = $(SRC_DIR)/common/print.c $(SRC_DIR)/common/convert.c
+
+# hardware
+CPU =$(SRC_DIR)/hardware/cpu/mmu.c $(SRC_DIR)/hardware/cpu/isa.c
+MEMORY = $(SRC_DIR)/hardware/memory/dram.c
+
+# main
+MAIN_HARDWARE = $(SRC_DIR)/main_hardware.c
+
+.PHONY:hardware
+hardware:
+	$(CC) $(CFLAGS) -I$(SRC_DIR) $(COMMON) $(CPU) $(MEMORY) $(DISK) $(MAIN_HARDWARE) -o $(EXE_HARDWARE)
+	./$(EXE_HARDWARE)
 
 run:
-	./$(EXE)
+	./$(EXE_HARDWARE)
