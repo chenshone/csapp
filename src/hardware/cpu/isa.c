@@ -171,7 +171,84 @@ static uint64_t reflect_register(const char *str, core_t *cr) {
   exit(0);
 }
 
-static void parse_instruction(const char *str, inst_t *inst, core_t *cr) {}
+static void parse_instruction(const char *str, inst_t *inst, core_t *cr) {
+  char op_str[64] = {'\0'};
+  int op_len = 0;
+  char src_str[64] = {'\0'};
+  int src_len = 0;
+  char dst_str[64] = {'\0'};
+  int dst_len = 0;
+
+  char c;
+  int count_parentheses = 0;
+  int state = 0;
+
+  for (int i = 0; i < strlen(str); i++) {
+    c = str[i];
+    if (c == '(' || c == ')') {
+      count_parentheses++;
+    }
+
+    if (state == 0 && c != ' ') {
+      state = 1;
+    } else if (state == 1 && c == ' ') {
+      state = 2;
+      continue;
+    } else if (state == 2 && c != ' ') {
+      state = 3;
+    } else if (state == 3 && c == ',' &&
+               (count_parentheses == 0 || count_parentheses == 2)) {
+      state = 4;
+      continue;
+    } else if (state == 4 && c != ' ' && c != ',') {
+      state = 5;
+    } else if (state == 5 && c == ' ') {
+      state = 6;
+      continue;
+    }
+
+    if (state == 1) {
+      op_str[op_len++] = c;
+      continue;
+    } else if (state == 3) {
+      src_str[src_len++] = c;
+      continue;
+    } else if (state == 5) {
+      dst_str[dst_len++] = c;
+      continue;
+    }
+  }
+
+  parse_operand(src_str, &(inst->src), cr);
+  parse_operand(dst_str, &(inst->dst), cr);
+
+  if (strcmp(op_str, "mov") == 0 || strcmp(op_str, "movq") == 0) {
+    inst->op = INST_MOV;
+  } else if (strcmp(op_str, "push") == 0) {
+    inst->op = INST_PUSH;
+  } else if (strcmp(op_str, "pop") == 0) {
+    inst->op = INST_POP;
+  } else if (strcmp(op_str, "leaveq") == 0) {
+    inst->op = INST_LEAVE;
+  } else if (strcmp(op_str, "callq") == 0) {
+    inst->op = INST_CALL;
+  } else if (strcmp(op_str, "retq") == 0) {
+    inst->op = INST_RET;
+  } else if (strcmp(op_str, "add") == 0) {
+    inst->op = INST_ADD;
+  } else if (strcmp(op_str, "sub") == 0) {
+    inst->op = INST_SUB;
+  } else if (strcmp(op_str, "cmpq") == 0) {
+    inst->op = INST_CMP;
+  } else if (strcmp(op_str, "jne") == 0) {
+    inst->op = INST_JNE;
+  } else if (strcmp(op_str, "jmp") == 0) {
+    inst->op = INST_JMP;
+  }
+
+  debug_printf(DEBUG_PARSEINST, "[%s (%d)] [%s (%d)] [%s (%d)]\n", op_str,
+               inst->op, src_str, inst->src.type, dst_str, inst->dst.type);
+}
 
 static void parse_operand(const char *str, od_t *od, core_t *cr) {
   /*
@@ -438,7 +515,17 @@ static void pop_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
   }
 }
 
-static void leave_handler(od_t *src_od, od_t *dst_od, core_t *cr) {}
+static void leave_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+  // movq %rbp %rsp
+  (cr->reg).rsp = (cr->reg).rbp;
+
+  // popq %rbp
+  uint64_t old_val = read64bits_dram(va2pa((cr->reg).rsp, cr), cr);
+  (cr->reg).rsp = (cr->reg).rsp + 8;
+  (cr->reg).rbp = old_val;
+  next_rip(cr);
+  cr->flags.__flag_values = 0;
+}
 
 static void call_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
   uint64_t src = decode_operand(src_od);
@@ -478,7 +565,15 @@ static void add_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
     // dst: register (value: int64_t bit map)
     uint64_t val = *(uint64_t *)dst + *(uint64_t *)src;
 
+    uint64_t val_sign = (val >> 63) & 0x1;
+    uint64_t src_sign = (*(uint64_t *)src >> 63) & 0x1;
+    uint64_t dst_sign = (*(uint64_t *)dst >> 63) & 0x1;
+
     // set condition flags
+    cr->flags.CF = (val < *(uint64_t *)src);
+    cr->flags.ZF = (val == 0);
+    cr->flags.SF = val_sign;
+    cr->flags.OF = (!(src_sign ^ dst_sign) && (src_sign ^ val_sign));
 
     // update registers
     *(uint64_t *)dst = val;
@@ -490,19 +585,89 @@ static void add_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
   }
 }
 
-static void sub_handler(od_t *src_od, od_t *dst_od, core_t *cr) {}
+static void sub_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+  uint64_t src = decode_operand(src_od);
+  uint64_t dst = decode_operand(dst_od);
 
-static void cmp_handler(od_t *src_od, od_t *dst_od, core_t *cr) {}
+  if (src_od->type == IMM && dst_od->type == REG) {
+    // src: immediate number (uint64_t bit map)
+    // dst: register (value: int64_t bit map)
 
-static void jne_handler(od_t *src_od, od_t *dst_od, core_t *cr) {}
+    uint64_t neg_src = ~src + 1;
+    uint64_t val = *(uint64_t *)dst + neg_src;
 
-static void jmp_handler(od_t *src_od, od_t *dst_od, core_t *cr) {}
+    uint64_t val_sign = (val >> 63) & 0x1;
+    uint64_t src_sign = (src >> 63) & 0x1;
+    uint64_t dst_sign = (*(uint64_t *)dst >> 63) & 0x1;
+
+    // set condition flags
+    cr->flags.CF = (val > *(uint64_t *)dst);
+    cr->flags.ZF = (val == 0);
+    cr->flags.SF = val_sign;
+    cr->flags.OF = ((src_sign ^ dst_sign) && (dst_sign ^ val_sign));
+
+    // update registers
+    *(uint64_t *)dst = val;
+    next_rip(cr);
+    return;
+  }
+}
+
+static void cmp_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+  uint64_t src = decode_operand(src_od);
+  uint64_t dst = decode_operand(dst_od);
+
+  if (src_od->type == IMM && dst_od->type >= MEM_IMM) {
+
+    uint64_t neg_src = ~src + 1;
+    uint64_t dval = read64bits_dram(va2pa(dst, cr), cr);
+    uint64_t val = dval + neg_src;
+
+    uint64_t val_sign = (val >> 63) & 0x1;
+    uint64_t src_sign = (src >> 63) & 0x1;
+    uint64_t dst_sign = (dval >> 63) & 0x1;
+
+    // set condition flags
+    cr->flags.CF = (val > dval);
+    cr->flags.ZF = (val == 0);
+    cr->flags.SF = val_sign;
+    cr->flags.OF = ((src_sign ^ dst_sign) && (dst_sign ^ val_sign));
+
+    next_rip(cr);
+    return;
+  }
+}
+
+static void jne_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+  uint64_t src = decode_operand(src_od);
+
+  // src_od is actually a instruction address as immediate number
+  // but we are interpreting it as an immediate number
+  if (cr->flags.ZF != 1) {
+    // last instruction value != 0
+    cr->rip = src;
+  } else { // last instruction value != 0
+    next_rip(cr);
+  }
+  cr->flags.__flag_values = 0;
+}
+
+static void jmp_handler(od_t *src_od, od_t *dst_od, core_t *cr) {
+  uint64_t src = decode_operand(src_od);
+
+  // src_od is actually a instruction address as immediate number
+  // but we are interpreting it as an immediate number
+  cr->rip = src;
+
+  cr->flags.__flag_values = 0;
+}
 
 // instruction cycle is implemented in CPU
 // the only exposed interface outside CPU
 void instruction_cycle(core_t *cr) {
   // FETCH: get the instruction string by program counter
-  const char *inst_str = (const char *)cr->rip;
+  char inst_str[MAX_INSTRUCTION_CHAR + 10];
+  readinst_dram(va2pa(cr->rip, cr), inst_str, cr);
   debug_printf(DEBUG_INSTRUCTIONCYCLE, "%lx    %s\n", cr->rip, inst_str);
 
   // DECODE: decode the run-time instruction operands

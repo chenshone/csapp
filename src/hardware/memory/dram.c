@@ -2,6 +2,8 @@
 #include "../../headers/common.h"
 #include "../../headers/cpu.h"
 #include "../../headers/memory.h"
+#include <assert.h>
+#include <string.h>
 
 /*
 Be careful with the x86-64 little endian integer encoding
@@ -47,5 +49,24 @@ void write64bits_dram(uint64_t paddr, uint64_t data, core_t *cr) {
     pm[paddr + 5] = (data >> 40) & 0xff;
     pm[paddr + 6] = (data >> 48) & 0xff;
     pm[paddr + 7] = (data >> 56) & 0xff;
+  }
+}
+
+void readinst_dram(uint64_t paddr, char *buf, core_t *cr) {
+  for (int i = 0; i < MAX_INSTRUCTION_CHAR; i++) {
+    buf[i] = (char)pm[paddr + i];
+  }
+}
+
+void writeinst_dram(uint64_t paddr, const char *str, core_t *cr) {
+  int len = strlen(str);
+  assert(len < MAX_INSTRUCTION_CHAR);
+
+  for (int i = 0; i < MAX_INSTRUCTION_CHAR; i++) {
+    if (i < len) {
+      pm[paddr + i] = (uint8_t)str[i];
+    } else {
+      pm[paddr + i] = 0;
+    }
   }
 }
