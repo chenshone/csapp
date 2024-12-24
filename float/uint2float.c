@@ -1,112 +1,94 @@
-#include<stdio.h>
-#include<stdlib.h>
-#include<stdint.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-#define unlikely(x) __builtin_expect(!!(x), 0)
+uint32_t uint2float(uint32_t u) {
+  if (u == 0x0)
+    return 0x0;
 
-int DEBUG = 1;
+  int n = 31; // 最高位1的位置
+  while (n >= 0 && (((u >> n) & 0x1) == 0))
+    n--;
 
-// convert uint32_t to its float
-uint32_t uint2float(uint32_t u)
-{
-    if (u == 0x00000000)
-    {
-        return 0x00000000;
+  uint32_t f;            // fraction
+  uint32_t e;            // exponent
+  if (u <= 0x00ffffff) { //<= 0000 0000 1.111 1111 1111 1111 1111 1111
+    // no need rounding
+    uint32_t mask = 0xffffffff >> (32 - n);
+    f = (u & mask) << (23 - n); // 对齐到小数点后23位
+    e = n + 127;
+
+    return (e << 23) | f;
+
+  } else { // >= 0000 0001 0000 0000 0000 0000 0000 0000
+    // need rounding
+    uint64_t a = 0; // expand to 64 bit for situations like 0xffffffff
+    a += u;
+
+    uint32_t g = (a >> (n - 23)) & 0x1;
+    uint32_t r = (a >> (n - 24)) & 0x1;
+    uint32_t s = 0x0;
+
+    for (int i = 0; i < n - 24; ++i) {
+      s |= (a >> i) & 0x1;
     }
-    // must be NORMALIZED
-    // counting the position of highest 1: u[n]
-    int n = 31;
-    while (0 <= n && (((u >> n) & 0x1) == 0x0))
-    {
-        n = n - 1;
+
+    // compute carry
+    a >>= n - 23;
+    /*
+    Rounding Rules
+    +-------+-------+-------+-------+
+    |   G   |   R   |   S   |       |
+    +-------+-------+-------+-------+
+    |   0   |   0   |   0   |   +0  | round down
+    |   0   |   0   |   1   |   +0  | round down
+    |   0   |   1   |   0   |   +0  | round down
+    |   0   |   1   |   1   |   +1  | round up
+    |   1   |   0   |   0   |   +0  | round down
+    |   1   |   0   |   1   |   +0  | round down
+    |   1   |   1   |   0   |   +1  | round up
+    |   1   |   1   |   1   |   +1  | round up
+    +-------+-------+-------+-------+
+    carry = R & (G | S) by K-Map
+    */
+
+    if ((r & (g | s)) == 0x1)
+      a += 1;
+
+    // check carry
+    if ((a >> 23) == 0x1) { // 0 1.??? ???? ???? ???? ????
+      f = a & 0x007fffff;
+      e = n + 127;
+      return (e << 23) | f;
+    } else if ((a >> 23) == 0x2) { // 1 0.000 0000 0000 0000
+      e = n + 1 + 127;
+      return e << 23;
     }
-    uint32_t e, f;
-    //    seee eeee efff ffff ffff ffff ffff ffff
-    // <= 0000 0000 1111 1111 1111 1111 1111 1111
-    if (u <= 0x00ffffff)
-    {
-        // no need rounding
-        uint32_t mask = 0xffffffff >> (32 - n);
-        f = (u & mask) << (23 - n);
-        e = n + 127;
-        return (e << 23) | f;
-    }
-        // >= 0000 0001 0000 0000 0000 0000 0000 0000
-    else
-    {
-        // need rounding
-        // expand to 64 bit for situations like 0xffffffff
-        uint64_t a = 0;
-        a += u;
-        // compute g, r, s
-        uint32_t g = (a >> (n - 23)) & 0x1;     // Guard bit, the lowest bit of the result
-        uint32_t r = (a >> (n - 24)) & 0x1;     // Round bit, the highest bit to be removed
-        uint32_t s = 0x0;                       // Sticky bit, the OR of remaining bits in the removed part (low)
-        for (int j = 0; j < n - 24; ++ j)
-        {
-            s = s | ((u >> j) & 0x1);
-        }
-        // compute carry
-        a = a >> (n - 23);
-        // 0    1    ?    ... ?
-        // [24] [23] [22] ... [0]
-        /* Rounding Rules
-            +-------+-------+-------+-------+
-            |   G   |   R   |   S   |       |
-            +-------+-------+-------+-------+
-            |   0   |   0   |   0   |   +0  | round down
-            |   0   |   0   |   1   |   +0  | round down
-            |   0   |   1   |   0   |   +0  | round down
-            |   0   |   1   |   1   |   +1  | round up
-            |   1   |   0   |   0   |   +0  | round down
-            |   1   |   0   |   1   |   +0  | round down
-            |   1   |   1   |   0   |   +1  | round up
-            |   1   |   1   |   1   |   +1  | round up
-            +-------+-------+-------+-------+
-        carry = R & (G | S) by K-Map
-        */
-        if ((r & (g | s)) == 0x1)
-        {
-            a = a + 1;
-        }
-        // check carry
-        if ((a >> 23) == 0x1)
-        {
-            // 0    1    ?    ... ?
-            // [24] [23] [22] ... [0]
-            f = a & 0x007fffff;
-            e = n + 127;
-            return (e << 23) | f;
-        }
-        else if ((a >> 23) == 0x2)
-        {
-            // 1    0    0    ... 0
-            // [24] [23] [22] ... [0]
-            e = n + 1 + 127;
-            return (e << 23);
-        }
-    }
-    // inf as default error
-    return 0x7f800000;
+  }
+  // inf as default error
+  return 0x7f800000;
 }
 
-int main()
-{
-    uint32_t uf;
-    float f;
+// 用联合体来避免严格别名问题
+typedef union {
+  float f;
+  uint32_t u;
+} FloatUnion;
 
-    // will run very long time
-    for (uint32_t u = 0x00ffffff; u <= 0xffffffff; ++ u)
-    {
-        uf = uint2float(u);
-        f = (float)u;
-        if (unlikely(uf != *(uint32_t *)&f))
-        {
-            printf("fail\n");
-            return 0;
-        }
+int main() {
+  uint32_t uf;
+  FloatUnion fu;
+
+  for (uint32_t u = 0x00ffffff; u <= 0xffffffff; ++u) {
+    uf = uint2float(u);
+    fu.f = (float)u;
+
+    if (uf != fu.u) {
+      printf("fail\n");
+      return 0;
     }
-    printf("pass\n");
+  }
 
-    return 0;
+  printf("pass\n");
+  return 0;
 }
