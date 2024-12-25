@@ -2,8 +2,9 @@
 
 #include "cpu/register.h"
 #include "memory/instruction.h"
+#include "disk/elf.h"
 
-inst_t program[15] =
+inst_t program[INST_LEN] =
 {
     // uint64_t add(uint64_t, uint64_t)
     {
