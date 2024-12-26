@@ -19,7 +19,7 @@ int main() {
     reg.rbp = 0x7ffffffee210;
     reg.rsp = 0x7ffffffee1f0;
 
-    reg.rip = (uint64_t)&program[11];
+    reg.rip = (uint64_t) &program[11];
 
     write64bits_dram(va2pa(0x7ffffffee210), 0x08000660); // rbp
     write64bits_dram(va2pa(0x7ffffffee208), 0x0);
@@ -27,14 +27,18 @@ int main() {
     write64bits_dram(va2pa(0x7ffffffee1f8), 0x12340000);
     write64bits_dram(va2pa(0x7ffffffee1f0), 0x08000660); // rsp
 
+    print_register();
+    print_stack();
+
     // run instruction
-    for (int i = 0; i < 3; i ++)
-    {
+    for (int i = 0; i < 3; i++) {
         instruction_cycle();
+
+        print_register();
+        print_stack();
     }
 
     // verify
-
     int match = 1;
 
     match = match && (reg.rax == 0x1234abcd);
@@ -51,7 +55,7 @@ int main() {
     else
         printf("register not match\n");
 
-    match = match && read64bits_dram(va2pa(0x7ffffffee210)) == 0x08000660;     // rbp
+    match = match && read64bits_dram(va2pa(0x7ffffffee210)) == 0x08000660; // rbp
     match = match && read64bits_dram(va2pa(0x7ffffffee208)) == 0x1234abcd;
     match = match && read64bits_dram(va2pa(0x7ffffffee200)) == 0xabcd;
     match = match && read64bits_dram(va2pa(0x7ffffffee1f8)) == 0x12340000;
