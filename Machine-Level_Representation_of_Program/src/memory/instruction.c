@@ -71,10 +71,12 @@ void instruction_cycle() {
 void init_handler_table() {
     handler_table[mov_reg_reg] = &mov_reg_reg_handler;
     handler_table[add_reg_reg] = &add_reg_reg_handler;
+    handler_table[ret] = &ret_handler;
     handler_table[call] = &call_handler;
     handler_table[push_reg] = &push_reg_handler;
     handler_table[pop_reg] = &pop_reg_handler;
     handler_table[mov_reg_mem] = &mov_reg_mem_handler;
+    handler_table[mov_mem_reg] = &mov_mem_reg_handler;
 }
 
 void mov_reg_reg_handler(uint64_t src, uint64_t dst) {
@@ -86,8 +88,18 @@ void mov_reg_reg_handler(uint64_t src, uint64_t dst) {
 
 
 void add_reg_reg_handler(uint64_t src, uint64_t dst) {
+    // src: reg
+    // dst: reg
     *(uint64_t *) dst = *(uint64_t *) dst + *(uint64_t *) src;
     reg.rip = reg.rip + sizeof(inst_t);
+}
+
+void ret_handler(uint64_t src, uint64_t dst) {
+    // src: empty
+    // dst: empty
+    uint64_t ret_addr = read64bits_dram(va2pa(reg.rsp));
+    reg.rsp = reg.rsp + 0x8;
+    reg.rip = ret_addr;
 }
 
 void call_handler(uint64_t src, uint64_t dst) {
@@ -115,8 +127,12 @@ void push_reg_handler(uint64_t src, uint64_t dst) {
 }
 
 void pop_reg_handler(uint64_t src, uint64_t dst) {
-    // TODO
-    printf("pop\n");
+    // src: empty
+    // dst: reg
+    *(uint64_t *) dst = read64bits_dram(va2pa(reg.rsp));
+    reg.rsp = reg.rsp + 0x8;
+
+    reg.rip = reg.rip + sizeof(inst_t);
 }
 
 void mov_reg_mem_handler(uint64_t src, uint64_t dst) {
@@ -126,6 +142,14 @@ void mov_reg_mem_handler(uint64_t src, uint64_t dst) {
         va2pa(dst),
         *(uint64_t *) src
     );
+
+    reg.rip = reg.rip + sizeof(inst_t);
+}
+
+void mov_mem_reg_handler(uint64_t src, uint64_t dst) {
+    // src: mem virutal address
+    // dst: reg
+    *(uint64_t *) dst = read64bits_dram(va2pa(src));
 
     reg.rip = reg.rip + sizeof(inst_t);
 }
