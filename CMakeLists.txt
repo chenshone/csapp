@@ -21,7 +21,7 @@ set(SOURCE_FILES
         ${SRC_DIR}/hardware/cpu/isa.c
         ${SRC_DIR}/hardware/cpu/mmu.c
         ${SRC_DIR}/hardware/memory/dram.c
-        ${SRC_DIR}/main_hardware.c
+        ${SRC_DIR}/tests/test_hardware.c
 )
 
 # 指定包含目录
